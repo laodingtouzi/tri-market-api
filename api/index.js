@@ -129,7 +129,7 @@ async function handleManualSell(body, token, owner, repo, res) {
   await ghPutFile(token, owner, repo, holdingsPath, holdingsData.content, holdingsData.sha, `Manual sell: ${code}`);
   await ghPutFile(token, owner, repo, postSellPath, postSellData.content, postSellData.sha, `Manual sell post: ${code}`);
 
-  return res.json({ success: true, message: `${code} 手工卖出成功`, code });
+  return res.json({ success: true, message: `${code} 手工卖出成功`, code, sold_out: true });
 }
 
 async function handleManualAdd(body, token, owner, repo, res) {
@@ -166,6 +166,28 @@ async function handleManualAdd(body, token, owner, repo, res) {
   h.cost = Math.round(totalShares * h.entry_price * 100) / 100;
 
   await ghPutFile(token, owner, repo, holdingsPath, holdingsData.content, holdingsData.sha, `Manual add: ${code} +${sharesVal}@${addPrice}`);
+
+  return res.json({
+    success: true,
+    message: `${code} 加仓 ${sharesVal} 股成功`,
+    code,
+    new_shares: totalShares,
+    new_entry_price: h.entry_price,
+    updated_stock: {
+      code,
+      name: h.name,
+      market: m,
+      status: h.status,
+      latest_score: h.latest_score,
+      current_price: h.current_price,
+      shares: h.shares,
+      total_return: h.total_return,
+      hold_days: h.hold_days,
+      entry_price: h.entry_price,
+      market_value: h.market_value,
+    }
+  });
+}
 
   return res.json({
     success: true,
@@ -217,7 +239,7 @@ async function handleManualReduce(body, token, owner, repo, res) {
     await ghPutFile(token, owner, repo, holdingsPath, holdingsData.content, holdingsData.sha, `Manual reduce to 0: ${code}`);
     await ghPutFile(token, owner, repo, postSellPath, postSellData.content, postSellData.sha, `Manual reduce post: ${code}`);
 
-    return res.json({ success: true, message: `${code} 已清仓`, code, new_shares: 0 });
+    return res.json({ success: true, message: `${code} 已清仓`, code, new_shares: 0, sold_out: true });
   }
 
   h.shares = newShares;
@@ -228,6 +250,27 @@ async function handleManualReduce(body, token, owner, repo, res) {
   }
 
   await ghPutFile(token, owner, repo, holdingsPath, holdingsData.content, holdingsData.sha, `Manual reduce: ${code} -${sharesVal}`);
+
+  return res.json({
+    success: true,
+    message: `${code} 减仓 ${sharesVal} 股成功`,
+    code,
+    new_shares: newShares,
+    updated_stock: {
+      code,
+      name: h.name,
+      market: m,
+      status: h.status,
+      latest_score: h.latest_score,
+      current_price: h.current_price,
+      shares: h.shares,
+      total_return: h.total_return,
+      hold_days: h.hold_days,
+      entry_price: h.entry_price,
+      market_value: h.market_value,
+    }
+  });
+}
 
   return res.json({
     success: true,
