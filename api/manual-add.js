@@ -64,12 +64,6 @@ module.exports = async (req, res) => {
         market_value: h.market_value,
       }
     });
-      success: true,
-      message: `${code} 加仓 ${sharesVal} 股成功`,
-      code,
-      new_shares: totalShares,
-      new_entry_price: h.entry_price,
-    });
   } catch (e) {
     return res.status(500).json({ error: e.message });
   }

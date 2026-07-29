@@ -81,13 +81,6 @@ module.exports = async (req, res) => {
         market_value: h.market_value,
       }
     });
-
-    return res.json({
-      success: true,
-      message: `${code} 减仓 ${sharesVal} 股成功`,
-      code,
-      new_shares: newShares,
-    });
   } catch (e) {
     return res.status(500).json({ error: e.message });
   }
