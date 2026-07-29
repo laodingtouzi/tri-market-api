@@ -20,25 +20,24 @@ module.exports = async (req, res) => {
   const REPO_OWNER = 'laodingtouzi';
   const REPO_NAME = 'laodinglab';
 
-  const url = new URL(req.url, `https://${req.headers.host}`);
-  const path = url.pathname;
-
   let body = {};
   try {
     if (req.body) body = req.body;
   } catch (e) {}
 
+  const action = body.action;
+
   try {
-    if (path === '/api/manual-sell' || path === '/manual-sell') {
+    if (action === 'sell') {
       return await handleManualSell(body, GITHUB_TOKEN, REPO_OWNER, REPO_NAME, res);
-    } else if (path === '/api/manual-add' || path === '/manual-add') {
+    } else if (action === 'add') {
       return await handleManualAdd(body, GITHUB_TOKEN, REPO_OWNER, REPO_NAME, res);
-    } else if (path === '/api/manual-reduce' || path === '/manual-reduce') {
+    } else if (action === 'reduce') {
       return await handleManualReduce(body, GITHUB_TOKEN, REPO_OWNER, REPO_NAME, res);
-    } else if (path === '/api/delist' || path === '/delist' || path === '/') {
+    } else if (action === 'delist') {
       return await handleDelist(body, GITHUB_TOKEN, REPO_OWNER, REPO_NAME, res);
     } else {
-      return res.status(404).json({ error: 'Unknown endpoint: ' + path });
+      return res.status(400).json({ error: 'Unknown action: ' + action });
     }
   } catch (e) {
     return res.status(500).json({ error: e.message });
@@ -189,15 +188,6 @@ async function handleManualAdd(body, token, owner, repo, res) {
   });
 }
 
-  return res.json({
-    success: true,
-    message: `${code} 加仓 ${sharesVal} 股成功`,
-    code,
-    new_shares: totalShares,
-    new_entry_price: h.entry_price,
-  });
-}
-
 async function handleManualReduce(body, token, owner, repo, res) {
   const { code, market } = body;
   if (!code || !market) return res.status(400).json({ error: 'Missing code or market' });
@@ -272,30 +262,18 @@ async function handleManualReduce(body, token, owner, repo, res) {
   });
 }
 
-  return res.json({
-    success: true,
-    message: `${code} 减仓 ${sharesVal} 股成功`,
-    code,
-    new_shares: newShares,
-  });
-}
-
 async function handleDelist(body, token, owner, repo, res) {
   const { code, action } = body;
   if (!code) return res.status(400).json({ error: 'Missing code' });
 
-  if (action === 'add') {
-    for (const m of ['CN', 'HK', 'US']) {
-      const postSellPath = `data/portfolio/post_sell_${m}.json`;
-      const data = await ghGetFile(token, owner, repo, postSellPath);
-      if (data && data.content[code]) {
-        delete data.content[code];
-        await ghPutFile(token, owner, repo, postSellPath, data.content, data.sha, `Delist: ${code}`);
-        return res.json({ success: true, message: `${code} 已从观察清单移除` });
-      }
+  for (const m of ['CN', 'HK', 'US']) {
+    const postSellPath = `data/portfolio/post_sell_${m}.json`;
+    const data = await ghGetFile(token, owner, repo, postSellPath);
+    if (data && data.content[code]) {
+      delete data.content[code];
+      await ghPutFile(token, owner, repo, postSellPath, data.content, data.sha, `Delist: ${code}`);
+      return res.json({ success: true, message: `${code} 已从观察清单移除` });
     }
-    return res.status(404).json({ error: 'Stock not found in post_sell' });
   }
-
-  return res.status(400).json({ error: 'Invalid action' });
+  return res.status(404).json({ error: 'Stock not found in post_sell' });
 }
