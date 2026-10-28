@@ -36,6 +36,8 @@ module.exports = async (req, res) => {
       return await handleManualReduce(body, GITHUB_TOKEN, REPO_OWNER, REPO_NAME, res);
     } else if (action === 'delist') {
       return await handleDelist(body, GITHUB_TOKEN, REPO_OWNER, REPO_NAME, res);
+    } else if (action === 'watch-sell') {
+      return await handleWatchSell(body, GITHUB_TOKEN, REPO_OWNER, REPO_NAME, res);
     } else {
       return res.status(400).json({ error: 'Unknown action: ' + action });
     }
@@ -260,6 +262,93 @@ async function handleManualReduce(body, token, owner, repo, res) {
       market_value: h.market_value,
     }
   });
+}
+
+async function handleWatchSell(body, token, owner, repo, res) {
+  const { code, market } = body;
+  if (!code || !market) return res.status(400).json({ error: 'Missing code or market' });
+
+  const m = market.toUpperCase();
+  if (!['CN', 'HK', 'US'].includes(m)) {
+    return res.status(400).json({ error: 'Invalid market: ' + market });
+  }
+
+  const watchPath = 'data/portfolio/watch_pool.json';
+  const holdingsPath = `data/portfolio/holdings_${m}.json`;
+  const postSellPath = `data/portfolio/post_sell_${m}.json`;
+
+  // 事务准备：先 GET 三个文件，全部解析成功后才在内存中修改
+  const watchData = await ghGetFile(token, owner, repo, watchPath);
+  if (!watchData) return res.status(404).json({ error: 'watch_pool.json not found in repo' });
+
+  let holdingsData = await ghGetFile(token, owner, repo, holdingsPath);
+  if (!holdingsData) holdingsData = { content: {}, sha: null };
+  let postSellData = await ghGetFile(token, owner, repo, postSellPath);
+  if (!postSellData) postSellData = { content: {}, sha: null };
+
+  const watch = watchData.content;
+  const members = Array.isArray(watch.members) ? watch.members : [];
+  const member = members.find(x => x.code === code);
+  if (!member) {
+    return res.status(404).json({ error: 'Stock not found in watch pool: ' + code });
+  }
+
+  const h = holdingsData.content[code] || null;
+  const today = new Date().toISOString().split('T')[0];
+  const nowIso = new Date().toISOString();
+  const reason = body.reason || '盯盘池手动卖出';
+  const sellPrice = body.sell_price || (h && h.current_price) || member.entry_price || 0;
+
+  // ① 从 watch_pool 移除成员 + 维护 removed_log（最近 50 条）
+  watch.members = members.filter(x => x.code !== code);
+  if (!Array.isArray(watch.removed_log)) watch.removed_log = [];
+  watch.removed_log.push({
+    code: code,
+    name: member.name,
+    market: m,
+    removed_at: nowIso,
+    removed_reason: reason,
+    sell_price: sellPrice,
+  });
+  if (watch.removed_log.length > 50) watch.removed_log = watch.removed_log.slice(-50);
+  watch.updated_at = nowIso;
+
+  // ② 从 holdings_<M> 移出该 code（若能拿到持仓数据，顺带记录收益/天数）
+  let totalReturn = null;
+  let holdDays = null;
+  if (h) {
+    if (h.total_return !== undefined) totalReturn = h.total_return;
+    if (h.hold_days !== undefined) holdDays = h.hold_days;
+    delete holdingsData.content[code];
+  }
+
+  // ③ 向 post_sell_<M> 追加记录
+  postSellData.content[code] = {
+    name: member.name,
+    market: m,
+    sell_date: today,
+    sell_price: sellPrice,
+    total_return_when_sold: totalReturn,
+    hold_days: holdDays,
+    post_sell_analysis: reason,
+    manual_sell: true,
+  };
+
+  // 依次 PUT；第 2/3 个失败时明确返回部分成功，避免静默部分状态
+  await ghPutFile(token, owner, repo, watchPath, watch, watchData.sha, `Watch-sell: ${code}`);
+  try {
+    await ghPutFile(token, owner, repo, holdingsPath, holdingsData.content, holdingsData.sha, `Watch-sell holdings: ${code}`);
+    await ghPutFile(token, owner, repo, postSellPath, postSellData.content, postSellData.sha, `Watch-sell post: ${code}`);
+  } catch (e) {
+    return res.status(502).json({
+      error: '部分成功：watch_pool 已更新但 holdings/post_sell 未更新，请重试或人工核对',
+      detail: e.message,
+      partial: true,
+      code: code,
+    });
+  }
+
+  return res.json({ success: true, message: `${code} 已卖出并移入沽后观察池`, code, sold_out: true });
 }
 
 async function handleDelist(body, token, owner, repo, res) {
